@@ -1,11 +1,22 @@
 [package]
-name = "coverboy-rs"
+name = "coverboy"
 version = "0.1.0"
 edition = "2024"
+authors = ["Jonathan Matarazzi <git@jonathanm.nl>"]
+description = "Album cover display"
+license = "AGPL-3"
+
+[package.metadata.deb]
+name = "coverboy"
+maintainer-scripts = "debian/"
+systemd-units = { enable = true }
+extended-description = "Display album covers on a RasPi connected to a 64x64 RGB LED matrix."
 
 [dependencies]
-rpi-led-matrix = "0.4.0"
-tungstenite = "0.30.0"
-serde_json = "1.0.151"
-image = "0.25.10"
-reqwest = { version = "0.13.4", features = ["blocking", "json"] }
+#rpi-led-matrix = {  version = "0.4.0", default-features = false }
+rpi-led-matrix = {  version = "0.4.0", default-features = false, features = ["c-stubs"] }
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
+serde_json = { version = "1.0.151", default-features = false }
+image = { version = "0.25.10" }
+reqwest = { version = "0.13.4", features = ["blocking", "json"], default-features = false }
+dotenvy = "0.15.7"

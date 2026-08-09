@@ -1,0 +1,19 @@
+#!/bin/sh
+CONFIGFILE=/etc/coverboy.conf
+set -e
+. /usr/share/debconf/confmodule
+
+# Load config file, if it exists.
+if [ -e $CONFIGFILE ]; then
+. $CONFIGFILE || true
+
+# Store values from config file into
+# debconf db.
+db_set coverboy/ha_url "$HA_URL"
+db_set coverboy/ha_token "$HA_TOKEN"
+fi
+
+# Ask questions.
+db_input critical coverboy/ha_url || true
+db_input critical coverboy/ha_token || true
+db_go || true

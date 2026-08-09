@@ -1,0 +1,39 @@
+#!/bin/sh
+CONFIGFILE=/etc/coverboy.conf
+set -e
+. /usr/share/debconf/confmodule
+
+# Generate config file, if it doesn't exist.
+# An alternative is to copy in a template
+# file from elsewhere.
+if [ ! -e $CONFIGFILE ]; then
+echo "# Config file for CoverBoy" > $CONFIGFILE
+echo "HA_URL=" >> $CONFIGFILE
+echo "HA_TOKEN=" >> $CONFIGFILE
+fi
+
+# Substitute in the values from the debconf db.
+# There are obvious optimizations possible here.
+# The cp before the sed ensures we do not mess up
+# the config file's ownership and permissions.
+db_get coverboy/ha_url
+HA_URL="$RET"
+db_get coverboy/ha_token
+HA_TOKEN="$RET"
+cp -a -f $CONFIGFILE $CONFIGFILE.tmp
+
+# If the admin deleted or commented some variables but then set
+# them via debconf, (re-)add them to the conffile.
+test -z "$HA_URL" || grep -Eq '^ *HA_URL=' $CONFIGFILE || \
+echo "HA_URL=" >> $CONFIGFILE
+test -z "$HA_TOKEN" || grep -Eq '^ *HA_TOKEN=' $CONFIGFILE || \
+echo "HA_TOKEN=" >> $CONFIGFILE
+
+ESCAPED_HA_URL=$(echo $HA_URL | sed 's/[\/&]/\\&/g')
+ESCAPED_HA_TOKEN=$(echo $HA_TOKEN | sed 's/[\/&]/\\&/g')
+sed -e "s/^ *HA_URL=.*/HA_URL=\"$ESCAPED_HA_URL\"/" \
+-e "s/^ *HA_TOKEN=.*/HA_TOKEN=\"$ESCAPED_HA_TOKEN\"/" \
+< $CONFIGFILE > $CONFIGFILE.tmp
+mv -f $CONFIGFILE.tmp $CONFIGFILE
+
+#DEBHELPER#

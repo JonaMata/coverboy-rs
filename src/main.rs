@@ -1,11 +1,13 @@
-use tungstenite::{connect, Message};
-use std::sync::{Arc, Mutex};
-use image::{DynamicImage, GenericImageView, Pixel};
-use rpi_led_matrix::{LedMatrix, LedColor};
+use image::DynamicImage;
+use rpi_led_matrix::{LedColor, LedMatrix, LedMatrixOptions, LedRuntimeOptions};
+use std::error::Error;
+use std::net::TcpStream;
+use std::time::Duration;
+use tungstenite::{Message, client};
 
 struct App {
     config: Config,
-    state: Mutex<State>,
+    state: State,
 }
 
 struct State {
@@ -13,31 +15,50 @@ struct State {
     current_song: Option<String>,
 }
 struct Config {
+    url: String,
     access_token: String,
 }
 
 fn main() {
+    dotenvy::from_filename("/etc/coverboy.conf").unwrap_or_else(|e| {
+        panic!("Failed to load .env file: {e}");
+    });
+    let mut options = LedMatrixOptions::new();
+    options.set_cols(64);
+    options.set_rows(64);
+    options.set_chain_length(1);
+    options.set_parallel(1);
+    options.set_hardware_mapping("regular");
+    options.set_pwm_lsb_nanoseconds(150);
+    options.set_limit_refresh(0);
+    options.set_brightness(75).unwrap();
 
-    let matrix = LedMatrix::new(None, None).unwrap();
+    let mut rt_options = LedRuntimeOptions::new();
+    rt_options.set_gpio_slowdown(0);
+    let matrix = LedMatrix::new(Some(options), Some(rt_options)).unwrap();
 
     let mut canvas = matrix.offscreen_canvas();
 
-    let app = Arc::new(App {
+    let mut app = App {
         config: Config {
-            access_token: std::env::var("HA_TOKEN").unwrap()
+            url: std::env::var("HA_URL").unwrap(),
+            access_token: std::env::var("HA_TOKEN").unwrap(),
         },
-        state: Mutex::new(State {
+        state: State {
             last_update: std::time::Instant::now(),
             current_song: None,
-        })
-    });
-
-    let (mut socket, response) = match connect(format!("ws://{}/api/websocket", std::env::var("HA_URL").unwrap())) {
-        Ok(ws) => ws,
-        Err(e) => panic!("Could not connect to WebSocket due to {}", e)
+        },
     };
+    println!("{:?}", app.config.url);
+    let stream = TcpStream::connect(&app.config.url).expect("Could not connect to WebSocket");
+    let (mut socket, response) =
+        match client(format!("ws://{}/api/websocket", app.config.url), &stream) {
+            Ok(ws) => ws,
+            Err(e) => panic!("Could not connect to WebSocket due to {e}"),
+        };
 
-    println!("Test");
+    stream.set_nonblocking(true).unwrap();
+
     println!("Connected to the server");
     println!("Response HTTP code: {}", response.status());
     println!("Response contains the following headers:");
@@ -46,114 +67,134 @@ fn main() {
     }
 
     loop {
-        let msg = socket.read().expect("Error reading message");
-        match msg {
-            Message::Text(text) => {
-                let result = handle_message(app.clone(), serde_json::from_str(&text).unwrap());
+        match socket.read() {
+            Ok(Message::Text(text)) => {
+                let result = handle_message(&mut app, &serde_json::from_str(&text).unwrap());
                 match result {
                     MessageResult::Image(image) => {
                         println!("Creating frame");
-                        for (x, y, pixel) in image.pixels() {
-                            let pixel = pixel.clone();
-                            let red = pixel.to_rgb().channels()[0];
-                            let green = pixel.to_rgb().channels()[1];
-                            let blue = pixel.to_rgb().channels()[2];
-                            canvas.set(x as i32, y as i32, &LedColor{red, green, blue});
+                        let image = image.into_rgb8();
+                        for (x, y, pixel) in image.enumerate_pixels() {
+                            let x = i32::try_from(x).unwrap();
+                            let y = i32::try_from(y).unwrap();
+                            let red = pixel.0[0];
+                            let green = pixel.0[1];
+                            let blue = pixel.0[2];
+                            canvas.set(x, y, &LedColor { red, green, blue });
                         }
                         println!("Loading frame");
                         canvas = matrix.swap(canvas);
                         println!("Loaded frame");
                     }
                     MessageResult::Message(resp) => {
-                        println!("Sending response: {}", resp);
-                        socket.send(Message::Text(serde_json::to_string(&resp).unwrap().into())).unwrap();
-                    },
+                        println!("Sending response: {resp}");
+                        socket
+                            .send(Message::Text(serde_json::to_string(&resp).unwrap().into()))
+                            .unwrap();
+                    }
                     MessageResult::None => {}
                 }
+            },
+            Err(tungstenite::Error::Io(e))
+                if e.kind() != std::io::ErrorKind::WouldBlock => {
+                    println!("Error reading from socket: {e}");
+                    break;
             }
             _ => {}
         }
+        let now = std::time::Instant::now();
+        if (now - app.state.last_update) > Duration::from_mins(10) {
+            canvas.clear();
+            canvas = matrix.swap(canvas);
+        }
     }
-    // socket.close(None);
+    socket.close(None).unwrap();
 }
 
 enum MessageResult {
     Image(DynamicImage),
     Message(serde_json::Value),
-    None
+    None,
 }
 
-fn handle_message(app: Arc<App>, msg: serde_json::Value) -> MessageResult {
+fn handle_message(app: &mut App, msg: &serde_json::Value) -> MessageResult {
     if msg["type"] == "auth_required" {
         return MessageResult::Message(serde_json::json!({
             "type": "auth",
             "access_token": app.config.access_token
-        }))
+        }));
     }
     if msg["type"] == "auth_ok" {
         return MessageResult::Message(serde_json::json!({
             "id": 1,
             "type": "subscribe_events",
             "event_type": "state_changed"
-        }))
+        }));
     }
-    if msg["type"] == "event" &&
-        msg["event"]["data"]["entity_id"].as_str().unwrap().starts_with("media_player.") &&
-        msg["event"]["data"]["new_state"]["state"] == "playing" &&
-        msg["event"]["data"]["new_state"]["attributes"]["media_content_type"] == "music" {
-        let mut state = app.state.lock().unwrap();
-        state.last_update = std::time::Instant::now();
+    if msg["type"] == "event"
+        && msg["event"]["data"]["entity_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("media_player.")
+        && msg["event"]["data"]["new_state"]["state"] == "playing"
+        && msg["event"]["data"]["new_state"]["attributes"]["media_content_type"] == "music"
+        && msg["event"]["data"]["new_state"]["attributes"]["media_title"].is_string()
+    {
+        app.state.last_update = std::time::Instant::now();
         let attrs = msg["event"]["data"]["new_state"]["attributes"].clone();
-        if state.current_song == Some(attrs["media_title"].as_str().unwrap().to_string()) {
-            return MessageResult::None
+        if app.state.current_song == Some(attrs["media_title"].as_str().unwrap().to_string()) {
+            return MessageResult::None;
         }
-        state.current_song = Some(attrs["media_title"].as_str().unwrap().to_string());
-        let mut cover_url: String = {
-        if attrs["entity_picture"].is_string() {
-            attrs["entity_picture"].as_str().unwrap().to_string()
-        } else if attrs["entity_picture_local"].is_string() {
-                attrs["entity_picture_local"].as_str().unwrap().to_string()
+        println!(
+            "New song: {} - {}",
+            attrs["media_artist"].as_str().unwrap(),
+            attrs["media_title"].as_str().unwrap()
+        );
+
+        let mut image = Err("No cover local found".into());
+        if attrs["entity_picture_local"].is_string() {
+            image = get_image(
+                app,
+                attrs["entity_picture_local"].as_str().unwrap().to_string(),
+            );
+        }
+        if image.is_err() {
+            println!("Failed to get local image: {}", image.as_ref().unwrap_err());
+            if attrs["entity_picture"].is_string() {
+                println!("Retrying with global image.");
+                match get_image(app, attrs["entity_picture"].as_str().unwrap().to_string()) {
+                    Ok(img) => image = Ok(img),
+                    Err(e) => {
+                        println!("Failed to get global image: {e}");
+                        return MessageResult::None;
+                    }
+                }
             } else {
-                "".to_string()
+                println!("No global image found.");
+                return MessageResult::None;
             }
-        };
-        println!("New song: {} - {} (cover: {})", attrs["media_artist"].as_str().unwrap(), attrs["media_title"].as_str().unwrap(), cover_url);
-
-        if cover_url.is_empty() {
-            return MessageResult::None
         }
 
-        if cover_url.starts_with("/") {
-            cover_url = "http://192.168.1.102:8123".to_string() + &cover_url;
-        }
-        println!("Downloading image");
-        let image_bytes = match reqwest::blocking::get(&cover_url) {
-            Ok(resp) => match resp.bytes() {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    println!("Error getting bytes from {}: {}", cover_url, e);
-                    return MessageResult::None
-                },
-            },
-            Err(e) => {
-                println!("Error fetching cover image: {}", e);
-                return MessageResult::None
-            }
-        };
-        println!("Downloaded image");
-        println!("Loading image");
-        let image = match image::load_from_memory(&image_bytes) {
-            Ok(image) => image,
-            Err(e) => {
-                println!("Error loading image from memory: {}", e);
-                return MessageResult::None
-            }
-        };
-        println!("Loaded image");
+        let image = image.unwrap();
+        app.state.current_song = Some(attrs["media_title"].as_str().unwrap().to_string());
+
         println!("Resizing image");
         let image = image.resize(64, 64, image::imageops::FilterType::Lanczos3);
         println!("Resized image");
         return MessageResult::Image(image);
     }
     MessageResult::None
+}
+
+fn get_image(app: &App, mut url: String) -> Result<DynamicImage, Box<dyn Error>> {
+    if url.starts_with('/') {
+        url = app.config.url.clone() + &url;
+    }
+    println!("Downloading image");
+    let image_bytes = reqwest::blocking::get(url)?.bytes()?;
+    println!("Downloaded image");
+    println!("Loading image");
+    let image = image::load_from_memory(&image_bytes)?;
+    println!("Loaded image");
+    Ok(image)
 }

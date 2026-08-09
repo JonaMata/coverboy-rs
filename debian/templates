@@ -1,0 +1,12 @@
+Template: coverboy/ha_url
+Type: string
+Default: http://homeassistant:8123
+Description: Home Assistant URL:
+ The Home Assistant URL to connect to. For example, http://homeassistant:8123.
+
+Template: coverboy/ha_token
+Type: string
+Default: long-lived-access-token
+Description: Home Assistant Long-Lived Access Token:
+ The long-lived access token to use for authentication with Home Assistant.
+ This can be generated in the Home Assistant UI under your user profile in the security tab.
