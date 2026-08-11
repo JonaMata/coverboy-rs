@@ -2,6 +2,7 @@ use image::DynamicImage;
 use rpi_led_matrix::{LedColor, LedMatrix, LedMatrixOptions, LedRuntimeOptions};
 use std::error::Error;
 use std::net::TcpStream;
+use std::thread::sleep;
 use std::time::Duration;
 use tungstenite::{Message, client};
 
@@ -67,6 +68,11 @@ fn main() {
     }
 
     loop {
+        let now = std::time::Instant::now();
+        if (now - app.state.last_update) > Duration::from_mins(10) {
+            canvas.clear();
+            canvas = matrix.swap(canvas);
+        }
         match socket.read() {
             Ok(Message::Text(text)) => {
                 let result = handle_message(&mut app, &serde_json::from_str(&text).unwrap());
@@ -94,18 +100,14 @@ fn main() {
                     }
                     MessageResult::None => {}
                 }
-            },
-            Err(tungstenite::Error::Io(e))
-                if e.kind() != std::io::ErrorKind::WouldBlock => {
-                    println!("Error reading from socket: {e}");
-                    break;
             }
-            _ => {}
-        }
-        let now = std::time::Instant::now();
-        if (now - app.state.last_update) > Duration::from_mins(10) {
-            canvas.clear();
-            canvas = matrix.swap(canvas);
+            Err(tungstenite::Error::Io(e)) if e.kind() != std::io::ErrorKind::WouldBlock => {
+                println!("Error reading from socket: {e}");
+                break;
+            }
+            _ => {
+                sleep(Duration::from_millis(100));
+            }
         }
     }
     socket.close(None).unwrap();
