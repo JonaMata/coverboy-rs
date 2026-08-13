@@ -16,6 +16,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Install cargo deb
+      run: cargo install deb
     - name: Build
       run: cargo deb --verbose --target aarch64-unknown-linux-gnu
     - name: Run tests
