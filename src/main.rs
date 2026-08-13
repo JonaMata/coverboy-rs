@@ -1,7 +1,9 @@
-use image::DynamicImage;
-use rpi_led_matrix::{LedColor, LedMatrix, LedMatrixOptions, LedRuntimeOptions};
+use image::{DynamicImage, RgbImage};
+use rpi_led_panel::{HardwareMapping, RGBMatrix, RGBMatrixConfig};
 use std::error::Error;
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 use tungstenite::{Message, client};
@@ -24,21 +26,16 @@ fn main() {
     dotenvy::from_filename("/etc/coverboy.conf").unwrap_or_else(|e| {
         panic!("Failed to load .env file: {e}");
     });
-    let mut options = LedMatrixOptions::new();
-    options.set_cols(64);
-    options.set_rows(64);
-    options.set_chain_length(1);
-    options.set_parallel(1);
-    options.set_hardware_mapping("regular");
-    options.set_pwm_lsb_nanoseconds(150);
-    options.set_limit_refresh(0);
-    options.set_brightness(75).unwrap();
+    let config = RGBMatrixConfig {
+        hardware_mapping: HardwareMapping::regular(),
+        cols: 64,
+        rows: 64,
+        refresh_rate: 0,
+        led_brightness: 75,
+        ..Default::default()
+    };
 
-    let mut rt_options = LedRuntimeOptions::new();
-    rt_options.set_gpio_slowdown(0);
-    let matrix = LedMatrix::new(Some(options), Some(rt_options)).unwrap();
-
-    let mut canvas = matrix.offscreen_canvas();
+    let (mut matrix, mut canvas) = RGBMatrix::new(config, 0).expect("Couldn't create matrix.");
 
     let mut app = App {
         config: Config {
@@ -50,67 +47,87 @@ fn main() {
             current_song: None,
         },
     };
-    println!("{:?}", app.config.url);
-    let stream = TcpStream::connect(&app.config.url).expect("Could not connect to WebSocket");
-    let (mut socket, response) =
-        match client(format!("ws://{}/api/websocket", app.config.url), &stream) {
-            Ok(ws) => ws,
-            Err(e) => panic!("Could not connect to WebSocket due to {e}"),
-        };
 
-    stream.set_nonblocking(true).unwrap();
+    let matrix_image: Arc<Mutex<Option<RgbImage>>> = Arc::new(Mutex::new(None));
 
-    println!("Connected to the server");
-    println!("Response HTTP code: {}", response.status());
-    println!("Response contains the following headers:");
-    for (header, _value) in response.headers() {
-        println!("* {header}");
-    }
+    let thread_image = matrix_image.clone();
 
-    loop {
-        let now = std::time::Instant::now();
-        if (now - app.state.last_update) > Duration::from_mins(10) {
-            canvas.clear();
-            canvas = matrix.swap(canvas);
-        }
-        match socket.read() {
-            Ok(Message::Text(text)) => {
-                let result = handle_message(&mut app, &serde_json::from_str(&text).unwrap());
-                match result {
-                    MessageResult::Image(image) => {
-                        println!("Creating frame");
-                        let image = image.into_rgb8();
-                        for (x, y, pixel) in image.enumerate_pixels() {
-                            let x = i32::try_from(x).unwrap();
-                            let y = i32::try_from(y).unwrap();
-                            let red = pixel.0[0];
-                            let green = pixel.0[1];
-                            let blue = pixel.0[2];
-                            canvas.set(x, y, &LedColor { red, green, blue });
-                        }
-                        println!("Loading frame");
-                        canvas = matrix.swap(canvas);
-                        println!("Loaded frame");
-                    }
-                    MessageResult::Message(resp) => {
-                        println!("Sending response: {resp}");
-                        socket
-                            .send(Message::Text(serde_json::to_string(&resp).unwrap().into()))
-                            .unwrap();
-                    }
-                    MessageResult::None => {}
+    thread::spawn(move || {
+        loop {
+            let matrix_image = thread_image.lock().unwrap().clone();
+            if let Some(image) = matrix_image {
+                for (x, y, pixel) in image.enumerate_pixels() {
+                    let x = usize::try_from(x).unwrap();
+                    let y = usize::try_from(y).unwrap();
+                    let red = pixel.0[0];
+                    let green = pixel.0[1];
+                    let blue = pixel.0[2];
+                    canvas.set_pixel(x, y, red, green, blue);
                 }
             }
-            Err(tungstenite::Error::Io(e)) if e.kind() != std::io::ErrorKind::WouldBlock => {
-                println!("Error reading from socket: {e}");
-                break;
+            canvas = matrix.update_on_vsync(canvas);
+        }
+    });
+
+    let mut connection_attempts = 0;
+
+    loop {
+        println!("Connection attempt {connection_attempts}:");
+        let Ok(stream) = TcpStream::connect(&app.config.url) else {
+            println!("Could not create TCP connection.");
+            break;
+        };
+        let (mut socket, response) =
+            match client(format!("ws://{}/api/websocket", app.config.url), &stream) {
+                Ok(ws) => ws,
+                Err(e) => {
+                    println!("Could not connect to WebSocket due to {e}");
+                    break;
+                }
+            };
+        println!("Connected to the server");
+        println!("Response HTTP code: {}", response.status());
+        println!("Response contains the following headers:");
+        for (header, _value) in response.headers() {
+            println!("* {header}");
+        }
+        connection_attempts = 0;
+        loop {
+            let now = std::time::Instant::now();
+            if (now - app.state.last_update) > Duration::from_mins(10) {
+                let mut mut_image = matrix_image.lock().unwrap();
+                *mut_image = None;
             }
-            _ => {
-                sleep(Duration::from_millis(100));
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    let result = handle_message(&mut app, &serde_json::from_str(&text).unwrap());
+                    match result {
+                        MessageResult::Image(image) => {
+                            println!("Loading new image.");
+                            let mut mut_image = matrix_image.lock().unwrap();
+                            *mut_image = Some(image.into_rgb8());
+                        }
+                        MessageResult::Message(resp) => {
+                            println!("Sending response: {resp}");
+                            socket
+                                .send(Message::Text(serde_json::to_string(&resp).unwrap().into()))
+                                .unwrap();
+                        }
+                        MessageResult::None => {}
+                    }
+                }
+                Err(e) => {
+                    println!("Error: {e}");
+                    break;
+                }
+                _ => {}
             }
         }
+        socket.close(None).unwrap();
+        println!("Disconnected, retrying to connect in 30 seconds.");
+        connection_attempts += 1;
+        sleep(Duration::from_secs(30));
     }
-    socket.close(None).unwrap();
 }
 
 enum MessageResult {
