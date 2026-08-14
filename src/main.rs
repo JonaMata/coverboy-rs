@@ -7,6 +7,8 @@ use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 use tungstenite::{Message, client};
+use libheif_rs::integration::image::register_all_decoding_hooks;
+
 
 struct App {
     config: Config,
@@ -23,6 +25,7 @@ struct Config {
 }
 
 fn main() {
+    register_all_decoding_hooks();
     dotenvy::from_filename("/etc/coverboy.conf").unwrap_or_else(|e| {
         panic!("Failed to load .env file: {e}");
     });
