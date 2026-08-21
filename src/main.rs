@@ -1,4 +1,5 @@
-use image::{DynamicImage, RgbImage, ImageReader};
+use heic::{DecoderConfig, PixelLayout};
+use image::{DynamicImage, ImageReader, RgbImage};
 use rpi_led_panel::{HardwareMapping, RGBMatrix, RGBMatrixConfig};
 use std::error::Error;
 use std::net::TcpStream;
@@ -7,8 +8,6 @@ use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 use tungstenite::{Message, client};
-use heic::{DecoderConfig, PixelLayout};
-
 
 struct App {
     config: Config,
@@ -22,15 +21,6 @@ struct State {
 struct Config {
     url: String,
     access_token: String,
-}
-
-#[derive(Debug, Clone)]
-struct Pixel {
-    x: usize,
-    y: usize,
-    r: u8,
-    g: u8,
-    b: u8,
 }
 
 fn main() {
@@ -227,18 +217,23 @@ fn get_image(app: &App, mut url: String) -> Result<RgbImage, Box<dyn Error>> {
         image = try_heic_decode(&image_bytes);
     }
     println!("Loaded image");
-    Ok(image?)
+    image
 }
 
 fn try_image_decode(image_bytes: &[u8]) -> Result<RgbImage, Box<dyn Error>> {
     let image = ImageReader::new(std::io::Cursor::new(image_bytes))
         .with_guessed_format()?
         .decode()?;
-    Ok(image.resize(64, 64, image::imageops::FilterType::Lanczos3).into_rgb8())
+    Ok(image
+        .resize(64, 64, image::imageops::FilterType::Lanczos3)
+        .into_rgb8())
 }
 
 fn try_heic_decode(data: &[u8]) -> Result<RgbImage, Box<dyn Error>> {
     let output = DecoderConfig::new().decode(data, PixelLayout::Rgb8)?;
-    let rgb_image = RgbImage::from_raw(output.width, output.height, output.data).ok_or("Failed to create RgbImage from HEIC data")?;
-    Ok(DynamicImage::ImageRgb8(rgb_image).resize_exact(64, 64, image::imageops::FilterType::Lanczos3).into_rgb8())
+    let rgb_image = RgbImage::from_raw(output.width, output.height, output.data)
+        .ok_or("Failed to create RgbImage from HEIC data")?;
+    Ok(DynamicImage::ImageRgb8(rgb_image)
+        .resize_exact(64, 64, image::imageops::FilterType::Lanczos3)
+        .into_rgb8())
 }
