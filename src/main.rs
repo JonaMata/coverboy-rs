@@ -1,4 +1,4 @@
-use image::{DynamicImage, RgbImage};
+use image::{DynamicImage, RgbImage, ImageReader};
 use rpi_led_panel::{HardwareMapping, RGBMatrix, RGBMatrixConfig};
 use std::error::Error;
 use std::net::TcpStream;
@@ -7,7 +7,7 @@ use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 use tungstenite::{Message, client};
-use libheif_rs::integration::image::register_all_decoding_hooks;
+use heic::{DecoderConfig, PixelLayout};
 
 
 struct App {
@@ -24,8 +24,17 @@ struct Config {
     access_token: String,
 }
 
+#[derive(Debug, Clone)]
+struct Pixel {
+    x: usize,
+    y: usize,
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
 fn main() {
-    register_all_decoding_hooks();
+    // register_all_decoding_hooks();
     dotenvy::from_filename("/etc/coverboy.conf").unwrap_or_else(|e| {
         panic!("Failed to load .env file: {e}");
     });
@@ -62,10 +71,7 @@ fn main() {
                 for (x, y, pixel) in image.enumerate_pixels() {
                     let x = usize::try_from(x).unwrap();
                     let y = usize::try_from(y).unwrap();
-                    let red = pixel.0[0];
-                    let green = pixel.0[1];
-                    let blue = pixel.0[2];
-                    canvas.set_pixel(x, y, red, green, blue);
+                    canvas.set_pixel(x, y, pixel[0], pixel[1], pixel[2]);
                 }
             }
             canvas = matrix.update_on_vsync(canvas);
@@ -108,7 +114,7 @@ fn main() {
                         MessageResult::Image(image) => {
                             println!("Loading new image.");
                             let mut mut_image = matrix_image.lock().unwrap();
-                            *mut_image = Some(image.into_rgb8());
+                            *mut_image = Some(image);
                         }
                         MessageResult::Message(resp) => {
                             println!("Sending response: {resp}");
@@ -134,7 +140,7 @@ fn main() {
 }
 
 enum MessageResult {
-    Image(DynamicImage),
+    Image(RgbImage),
     Message(serde_json::Value),
     None,
 }
@@ -181,7 +187,7 @@ fn handle_message(app: &mut App, msg: &serde_json::Value) -> MessageResult {
             );
         }
         if image.is_err() {
-            println!("Failed to get local image: {}", image.as_ref().unwrap_err());
+            println!("Failed to get local image");
             if attrs["entity_picture"].is_string() {
                 println!("Retrying with global image.");
                 match get_image(app, attrs["entity_picture"].as_str().unwrap().to_string()) {
@@ -200,23 +206,39 @@ fn handle_message(app: &mut App, msg: &serde_json::Value) -> MessageResult {
         let image = image.unwrap();
         app.state.current_song = Some(attrs["media_title"].as_str().unwrap().to_string());
 
-        println!("Resizing image");
-        let image = image.resize(64, 64, image::imageops::FilterType::Lanczos3);
         println!("Resized image");
         return MessageResult::Image(image);
     }
     MessageResult::None
 }
 
-fn get_image(app: &App, mut url: String) -> Result<DynamicImage, Box<dyn Error>> {
+fn get_image(app: &App, mut url: String) -> Result<RgbImage, Box<dyn Error>> {
     if url.starts_with('/') {
-        url = app.config.url.clone() + &url;
+        url = "http://".to_string() + &app.config.url.clone() + &url;
     }
-    println!("Downloading image");
+    println!("Downloading image from {url}");
     let image_bytes = reqwest::blocking::get(url)?.bytes()?;
     println!("Downloaded image");
     println!("Loading image");
-    let image = image::load_from_memory(&image_bytes)?;
+
+    let mut image = try_image_decode(&image_bytes);
+    if image.is_err() {
+        println!("Failed to decode image, trying HEIC...");
+        image = try_heic_decode(&image_bytes);
+    }
     println!("Loaded image");
-    Ok(image)
+    Ok(image?)
+}
+
+fn try_image_decode(image_bytes: &[u8]) -> Result<RgbImage, Box<dyn Error>> {
+    let image = ImageReader::new(std::io::Cursor::new(image_bytes))
+        .with_guessed_format()?
+        .decode()?;
+    Ok(image.resize(64, 64, image::imageops::FilterType::Lanczos3).into_rgb8())
+}
+
+fn try_heic_decode(data: &[u8]) -> Result<RgbImage, Box<dyn Error>> {
+    let output = DecoderConfig::new().decode(data, PixelLayout::Rgb8)?;
+    let rgb_image = RgbImage::from_raw(output.width, output.height, output.data).ok_or("Failed to create RgbImage from HEIC data")?;
+    Ok(DynamicImage::ImageRgb8(rgb_image).resize_exact(64, 64, image::imageops::FilterType::Lanczos3).into_rgb8())
 }
