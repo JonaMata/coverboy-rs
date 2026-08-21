@@ -19,3 +19,4 @@ serde_json = { version = "1.0.151", default-features = false }
 image = { version = "0.25.10" }
 reqwest = { version = "0.13.4", features = ["blocking", "json"], default-features = false }
 dotenvy = "0.15.7"
+heic = "0.1.6"
