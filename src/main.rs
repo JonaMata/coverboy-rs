@@ -3,8 +3,6 @@ use image::{DynamicImage, ImageReader, RgbImage};
 use rpi_led_panel::{HardwareMapping, RGBMatrix, RGBMatrixConfig};
 use std::error::Error;
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
-use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 use tungstenite::{Message, client};
@@ -24,7 +22,6 @@ struct Config {
 }
 
 fn main() {
-    // register_all_decoding_hooks();
     dotenvy::from_filename("/etc/coverboy.conf").unwrap_or_else(|e| {
         panic!("Failed to load .env file: {e}");
     });
@@ -50,24 +47,6 @@ fn main() {
         },
     };
 
-    let matrix_image: Arc<Mutex<Option<RgbImage>>> = Arc::new(Mutex::new(None));
-
-    let thread_image = matrix_image.clone();
-
-    thread::spawn(move || {
-        loop {
-            let matrix_image = thread_image.lock().unwrap().clone();
-            if let Some(image) = matrix_image {
-                for (x, y, pixel) in image.enumerate_pixels() {
-                    let x = usize::try_from(x).unwrap();
-                    let y = usize::try_from(y).unwrap();
-                    canvas.set_pixel(x, y, pixel[0], pixel[1], pixel[2]);
-                }
-            }
-            canvas = matrix.update_on_vsync(canvas);
-        }
-    });
-
     let mut connection_attempts = 0;
 
     loop {
@@ -91,11 +70,13 @@ fn main() {
             println!("* {header}");
         }
         connection_attempts = 0;
+        let mut i = 0;
         loop {
             let now = std::time::Instant::now();
             if (now - app.state.last_update) > Duration::from_mins(10) {
-                let mut mut_image = matrix_image.lock().unwrap();
-                *mut_image = None;
+                canvas.fill(0, 0, 0);
+                canvas = matrix.update_on_vsync(canvas);
+                app.state.current_song = None;
             }
             match socket.read() {
                 Ok(Message::Text(text)) => {
@@ -103,8 +84,12 @@ fn main() {
                     match result {
                         MessageResult::Image(image) => {
                             println!("Loading new image.");
-                            let mut mut_image = matrix_image.lock().unwrap();
-                            *mut_image = Some(image);
+                            for (x, y, pixel) in image.enumerate_pixels() {
+                                let x = usize::try_from(x).unwrap();
+                                let y = usize::try_from(y).unwrap();
+                                canvas.set_pixel(x, y, pixel[0], pixel[1], pixel[2]);
+                            }
+                            canvas = matrix.update_on_vsync(canvas);
                         }
                         MessageResult::Message(resp) => {
                             println!("Sending response: {resp}");
@@ -120,6 +105,10 @@ fn main() {
                     break;
                 }
                 _ => {}
+            }
+            i += 1;
+            if i % 100 == 0 {
+                println!("Framerate: {}", matrix.get_framerate());
             }
         }
         socket.close(None).unwrap();
