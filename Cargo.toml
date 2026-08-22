@@ -13,7 +13,8 @@ systemd-units = { enable = true }
 extended-description = "Display album covers on a RasPi connected to a 64x64 RGB LED matrix."
 
 [dependencies]
-rpi-led-panel = "0.8.1"
+#rpi-led-panel = "0.8.1"
+rpi-led-panel = { git = "https://github.com/JonaMata/rpi_led_panel.git", branch = "fix/frame-retention" }
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 serde_json = { version = "1.0.151", default-features = false }
 image = { version = "0.25.10" }
