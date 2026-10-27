@@ -307,7 +307,7 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "coverboy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dotenvy",
  "heic",
@@ -1483,8 +1483,9 @@ checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
 
 [[package]]
 name = "rpi-led-panel"
-version = "0.8.1"
-source = "git+https://github.com/JonaMata/rpi_led_panel.git?branch=fix%2Fframe-retention#36f90d2b591d408f75f4f3020a50de154592187c"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44fad87434f26a0ec48d755feb6d184a2eefae359da89cdea7bacfd8e4e78758"
 dependencies = [
  "argh",
  "embedded-graphics",

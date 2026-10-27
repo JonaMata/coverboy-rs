@@ -14,7 +14,7 @@ struct App {
 
 struct State {
     last_update: std::time::Instant,
-    current_song: Option<String>,
+    current_images: Option<[String; 2]>,
 }
 struct Config {
     url: String,
@@ -43,7 +43,7 @@ fn main() {
         },
         state: State {
             last_update: std::time::Instant::now(),
-            current_song: None,
+            current_images: None,
         },
     };
 
@@ -53,14 +53,14 @@ fn main() {
         println!("Connection attempt {connection_attempts}:");
         let Ok(stream) = TcpStream::connect(&app.config.url) else {
             println!("Could not create TCP connection.");
-            break;
+            continue;
         };
         let (mut socket, response) =
             match client(format!("ws://{}/api/websocket", app.config.url), &stream) {
                 Ok(ws) => ws,
                 Err(e) => {
                     println!("Could not connect to WebSocket due to {e}");
-                    break;
+                    continue;
                 }
             };
         println!("Connected to the server");
@@ -76,7 +76,7 @@ fn main() {
             if (now - app.state.last_update) > Duration::from_mins(10) {
                 canvas.fill(0, 0, 0);
                 canvas = matrix.update_on_vsync(canvas);
-                app.state.current_song = None;
+                app.state.current_images = None;
             }
             match socket.read() {
                 Ok(Message::Text(text)) => {
@@ -107,7 +107,7 @@ fn main() {
                 _ => {}
             }
             i += 1;
-            if i % 100 == 0 {
+            if i % 10 == 0 {
                 println!("Framerate: {}", matrix.get_framerate());
             }
         }
@@ -149,7 +149,12 @@ fn handle_message(app: &mut App, msg: &serde_json::Value) -> MessageResult {
     {
         app.state.last_update = std::time::Instant::now();
         let attrs = msg["event"]["data"]["new_state"]["attributes"].clone();
-        if app.state.current_song == Some(attrs["media_title"].as_str().unwrap().to_string()) {
+        let images = [
+            attrs["entity_picture_local"].as_str().unwrap_or("").to_string(),
+            attrs["entity_picture"].as_str().unwrap_or("").to_string(),
+        ];
+
+        if app.state.current_images == Some(images.clone()) {
             return MessageResult::None;
         }
         println!(
@@ -158,34 +163,26 @@ fn handle_message(app: &mut App, msg: &serde_json::Value) -> MessageResult {
             attrs["media_title"].as_str().unwrap()
         );
 
-        let mut image = Err("No cover local found".into());
-        if attrs["entity_picture_local"].is_string() {
-            image = get_image(
-                app,
-                attrs["entity_picture_local"].as_str().unwrap().to_string(),
-            );
-        }
-        if image.is_err() {
-            println!("Failed to get local image");
-            if attrs["entity_picture"].is_string() {
-                println!("Retrying with global image.");
-                match get_image(app, attrs["entity_picture"].as_str().unwrap().to_string()) {
-                    Ok(img) => image = Ok(img),
-                    Err(e) => {
-                        println!("Failed to get global image: {e}");
-                        return MessageResult::None;
-                    }
+        let mut image_data = Err("No cover local found".into());
+        for url in &images {
+            if !url.is_empty() {
+                image_data = get_image(app, url.clone());
+                if image_data.is_ok() {
+                    break;
                 }
-            } else {
-                println!("No global image found.");
+            }
+        };
+
+        let image = match image_data {
+            Ok(img) => img,
+            Err(e) => {
+                println!("Failed to get image: {e}");
                 return MessageResult::None;
             }
-        }
+        };
 
-        let image = image.unwrap();
-        app.state.current_song = Some(attrs["media_title"].as_str().unwrap().to_string());
+        app.state.current_images = Some(images);
 
-        println!("Resized image");
         return MessageResult::Image(image);
     }
     MessageResult::None
