@@ -12,7 +12,7 @@ env:
 jobs:
   build:
 
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-26.04-arm
 
     steps:
     - uses: actions/checkout@v4
@@ -28,13 +28,21 @@ jobs:
 #      run: cargo deb --verbose
     - name: Install cross
       run: cargo install cross
-    - name: Build
+    - name: Debug build
+      run: cross build --target aarch64-unknown-linux-gnu
+    - name: Release build
       run: cross build --target aarch64-unknown-linux-gnu --release
     - name: Package
       run: cargo deb --no-build --target aarch64-unknown-linux-gnu --verbose
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v7.0.1
       with:
-        name: deb
-        path: target/debug/coverboy
+        name: debug executable
+        path: target/aarch64-unknown-linux-gnu/debug/coverboy
+        archive: false
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: release package
+        path: target/aarch64-unknown-linux-gnu/debian/coverboy*.deb
         archive: false
