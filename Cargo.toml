@@ -1,6 +1,6 @@
 [package]
 name = "coverboy"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 authors = ["Jonathan Matarazzi <git@jonathanm.nl>"]
 description = "Album cover display"
@@ -13,7 +13,7 @@ systemd-units = { enable = true }
 extended-description = "Display album covers on a RasPi connected to a 64x64 RGB LED matrix."
 
 [dependencies]
-rpi-led-panel = "0.9.0"
+rpi-led-panel = "0.9.1"
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
 serde_json = { version = "1.0.151", default-features = false }
 image = { version = "0.25.10" }
