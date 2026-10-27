@@ -12,9 +12,6 @@ maintainer-scripts = "debian/"
 systemd-units = { enable = true }
 extended-description = "Display album covers on a RasPi connected to a 64x64 RGB LED matrix."
 
-[profile.release]
-debug = "full"
-
 [dependencies]
 rpi-led-panel = "0.9.1"
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }
