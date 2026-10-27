@@ -12,25 +12,37 @@ env:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-arm
 
     steps:
     - uses: actions/checkout@v4
-    - name: install cross-compile aarch64 toolchain
-      run: sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross libgcc-12-dev-arm64-cross binutils-aarch64-linux-gnu
     - name: Install cargo deb
       run: cargo install cargo-deb
-    - name: Install rust target
-      run: rustup target add aarch64-unknown-linux-gnu
-    - name: Configure cross-compilation linker
-      run: |
-        mkdir -p ~/.cargo
-        printf '[target.aarch64-unknown-linux-gnu]\nlinker = "aarch64-linux-gnu-gcc"\n' >> ~/.cargo/config.toml
-    - name: Build
-      run: cargo deb --verbose --target aarch64-unknown-linux-gnu
+#    - name: Install rust target
+#      run: rustup target add aarch64-unknown-linux-gnu
+#    - name: Configure cross-compilation linker
+#      run: |
+#        mkdir -p ~/.cargo
+#        printf '[target.aarch64-unknown-linux-gnu]\nlinker = "aarch64-linux-gnu-gcc"\n' >> ~/.cargo/config.toml
+#    - name: Build
+#      run: cargo deb --verbose
+    - name: Install cross
+      run: cargo install cross
+    - name: Debug build
+      run: cross build --target aarch64-unknown-linux-gnu
+    - name: Release build
+      run: cross build --target aarch64-unknown-linux-gnu --release
+    - name: Package
+      run: cargo deb --no-build --target aarch64-unknown-linux-gnu --verbose
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v7.0.1
       with:
-        name: deb
-        path: target/debian/*.deb
+        name: debug executable
+        path: target/aarch64-unknown-linux-gnu/debug/coverboy
+        archive: false
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v7.0.1
+      with:
+        name: release package
+        path: target/aarch64-unknown-linux-gnu/debian/coverboy*.deb
         archive: false
