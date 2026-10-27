@@ -29,7 +29,7 @@ fn main() {
         hardware_mapping: HardwareMapping::regular(),
         cols: 64,
         rows: 64,
-        refresh_rate: 0,
+        refresh_rate: 120,
         led_brightness: 75,
         ..Default::default()
     };
@@ -70,7 +70,6 @@ fn main() {
             println!("* {header}");
         }
         connection_attempts = 0;
-        let mut i = 0;
         loop {
             let now = std::time::Instant::now();
             if (now - app.state.last_update) > Duration::from_mins(10) {
@@ -105,10 +104,6 @@ fn main() {
                     break;
                 }
                 _ => {}
-            }
-            i += 1;
-            if i % 10 == 0 {
-                println!("Framerate: {}", matrix.get_framerate());
             }
         }
         socket.close(None).unwrap();
