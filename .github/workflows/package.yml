@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: install cross-compile aarch64 toolchain
-      run: sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross libgcc-12-dev-arm64-cross binutils-aarch64-linux-gnu
+      run: sudo apt-get install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross libgcc-12-dev-arm64-cross binutils-aarch64-linux-gnu
     - name: Install required libraries
       run: |
         sudo sed -i 's/Types: deb/Types: deb\nArchitectures: amd64/g' /etc/apt/sources.list.d/ubuntu.sources
@@ -29,8 +29,10 @@ jobs:
         Components: main universe restricted multiverse
         Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
         EOF
+        sudo apt-get update
         sudo dpkg --add-architecture arm64
-        sudo apt install -y libheif-dev:arm64 libsharpyuv-dev:arm64 libwebp-dev:arm64
+        sudo apt-get update
+        sudo apt-get install -y libheif-dev:arm64 libsharpyuv-dev:arm64 libwebp-dev:arm64
     - name: Install cargo deb
       run: cargo install cargo-deb
     - name: Install rust target
