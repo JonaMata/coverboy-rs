@@ -8,6 +8,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Required to let Rust's pkg-config know it's allowed to cross-compile
+  PKG_CONFIG_ALLOW_CROSS: 1
+  # Point pkg-config to the ARM64 library paths we just installed via apt
+  PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
+  PKG_CONFIG_SYSROOT_DIR: /
 
 jobs:
   build:
@@ -17,9 +22,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: install cross-compile aarch64 toolchain
-      run: sudo apt-get install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross libgcc-12-dev-arm64-cross binutils-aarch64-linux-gnu
+      run: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross libgcc-12-dev-arm64-cross binutils-aarch64-linux-gnu
     - name: Install required libraries
       run: |
+        sudo dpkg --add-architecture arm64
         sudo sed -i 's/Types: deb/Types: deb\nArchitectures: amd64/g' /etc/apt/sources.list.d/ubuntu.sources
         cat <<EOF | sudo tee /etc/apt/sources.list.d/ubuntu-ports.sources
         Types: deb
@@ -29,8 +35,6 @@ jobs:
         Components: main universe restricted multiverse
         Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
         EOF
-        sudo apt-get update
-        sudo dpkg --add-architecture arm64
         sudo apt-get update
         sudo apt-get install -y libheif-dev:arm64 libsharpyuv-dev:arm64 libwebp-dev:arm64
     - name: Install cargo deb
@@ -42,7 +46,7 @@ jobs:
         mkdir -p ~/.cargo
         printf '[target.aarch64-unknown-linux-gnu]\nlinker = "aarch64-linux-gnu-gcc"\n' >> ~/.cargo/config.toml
     - name: Build
-      run: cargo deb --verbose --target aarch64-unknown-linux-gnu
+      run: cargo deb --verbose --target aarch64-unknown-linux-gnu --no-strip
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v7.0.1
       with:
