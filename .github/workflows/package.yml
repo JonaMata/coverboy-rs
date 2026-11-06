@@ -18,6 +18,11 @@ jobs:
     - uses: actions/checkout@v4
     - name: install cross-compile aarch64 toolchain
       run: sudo apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross libgcc-12-dev-arm64-cross binutils-aarch64-linux-gnu
+    - name: Install required libraries
+      run: |
+        dpkg --add-architecture arm64
+        apt-get update
+        apt-get install -y libheif-dev:arm64 libsharpyuv-dev:arm64 libwebp-dev:arm64
     - name: Install cargo deb
       run: cargo install cargo-deb
     - name: Install rust target
