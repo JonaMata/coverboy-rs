@@ -43,3 +43,6 @@ ENV PKG_CONFIG_SYSROOT_DIR=/
 # 2. Guarantee any remaining C/C++ crates strictly use the cross-compiler, never the host compiler
 ENV CC_aarch64_unknown_linux_gnu=aarch64-unknown-linux-gnu-gcc
 ENV CXX_aarch64_unknown_linux_gnu=aarch64-unknown-linux-gnu-g++
+
+
+ENV RUSTFLAGS: "-C target-cpu=cortex-a53"
