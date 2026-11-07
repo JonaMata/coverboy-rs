@@ -34,3 +34,12 @@ ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-unknown-linux-gnu-gcc
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_STRIP=aarch64-unknown-linux-gnu-strip
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_OBJCOPY=aarch64-unknown-linux-gnu-objcopy
 ENV BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-gnu"
+
+# 1. Force pkg-config to stay enabled and point it to the AArch64 Debian libraries
+ENV PKG_CONFIG_ALLOW_CROSS=1
+ENV PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+ENV PKG_CONFIG_SYSROOT_DIR=/
+
+# 2. Guarantee any remaining C/C++ crates strictly use the cross-compiler, never the host compiler
+ENV CC_aarch64_unknown_linux_gnu=aarch64-unknown-linux-gnu-gcc
+ENV CXX_aarch64_unknown_linux_gnu=aarch64-unknown-linux-gnu-g++
