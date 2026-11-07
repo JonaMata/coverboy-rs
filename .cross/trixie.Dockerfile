@@ -33,3 +33,4 @@ ENV CARGO_HOME=/usr/local/cargo
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-unknown-linux-gnu-gcc
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_STRIP=aarch64-unknown-linux-gnu-strip
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_OBJCOPY=aarch64-unknown-linux-gnu-objcopy
+ENV BINDGEN_EXTRA_CLANG_ARGS="--target=aarch64-linux-gnu"
